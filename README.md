@@ -1,6 +1,6 @@
 # Healthcare Analytics
 
-An end-to-end analytics project that mimics a real-world health insurance database. We generate synthetic the following synthetic data which will ultimately be utilized in Power BI:
+An end-to-end analytics project that mimics a real-world health insurance database from data generation, to database configuration and management, to final analytics. We generate the following synthetic data which will ultimately be utilized in Power BI:
 
 - Scheme Membership data
 - Medical Claims Data
