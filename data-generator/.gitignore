@@ -1,0 +1,73 @@
+## Generator output
+output/
+*.parquet
+validation_report.csv
+
+# Keep the sample workbook (layout reference used by tests)
+!data/samples/SampleData.xlsx
+
+## Virtual environment
+.venv/
+venv/
+env/
+.uv-cache/
+
+## Python bytecode and build artefacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+
+
+## Testing, linting, type checking
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.hypothesis/
+
+
+## Notebooks
+# Outputs are stripped to save space when committing
+.ipynb_checkpoints/
+
+
+## VS Code settings
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+*.code-workspace
+.history/
+
+
+## Secrets and local settings (database and API stages)
+.env
+.env.*
+!.env.example
+
+
+## Excel / Office lock and temp files (reference CSVs edited in Excel)
+~$*
+*.tmp
+
+
+## Logs and scratch
+*.log
+logs/
+scratch/
+
+
+## Operating systems
+.DS_Store
+Thumbs.db
+desktop.ini
