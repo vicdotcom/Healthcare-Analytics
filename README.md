@@ -30,10 +30,7 @@ flowchart TD
     - [Membership Data](#membership-data)
     - [Claims Data](#claims-data)
     - [Premium Data](#premium-data)
-  - [Grain Summary](#grain-summary)
   - [Primary Keys](#primary-keys)
-  - [Reference sources and calibration targets](#reference-sources-and-calibration-targets)
-  - [Reference and Assumptions Configuration](#reference-and-assumptions-configuration)
 
 
 ## Generated Data
@@ -89,12 +86,9 @@ Generator logic:
 - A claim number must only have one claimant per claim
 - `Line_No` row so that each row has a unique key
 
-
 Ailment/Diagnosis Consideration
 - A seperate ailment ID table must be in place for guiding the diagnosis categorization
 - This is for mapping the diagnoses to their broader categories (i.e.- Top level ICD10/11 categories/chapters)
-
-
 
 ### Premium Data
 
@@ -117,17 +111,10 @@ Generator logic:
 - Credit notes for deletions are effective 1 day after the member has left the scheme.
 - Earned premium is not part of the generator and will be a derived output.
 
-## Grain Summary
-
-| Dataset | One row represents | Natural key | Generator outputs |
-|---|---|---|---|
-| Claims | One service line on a claim | `Claim_No` + `Line_No` | `claim_visit` (a particular visit), `claim_items` (service type per visit; should be one row line per visit), layout is defined in above table|
-| Membership | One covered person | `Client_ID` + `Member_ID` | `members` (layout defined above) |
-| Premium | One invoice / credit note | `Invoice_No` | `premium_invoices` |
 
 ## Primary Keys
 
-These are the keys that will connect the membership, claims and premium datasets.
+These are keys/IDs that will connect the membership, claims and premium datasets.
 
 ```mermaid
 erDiagram
@@ -140,41 +127,4 @@ erDiagram
     CATEGORY_LIMITS ||--o{ CLAIM_ITEMS : caps
 ```
 
-Notes:
-- The key split. Client_ID (e.g. C-10482) should identifies the client only. A scheme needs its own key, such as Scheme_ID, with Client_ID as a foreign key, plus a scheme name and its start and end dates or policy year. 
-- A scheme is defined as a one policy-year contract, so a client has one scheme row per year. Members, invoices, claims and limits link to the scheme for that year. A member who stays for several years then appears under several schemes, so MEMBERS would need a link to the client as well, or a member-per-scheme-year row.
-
-| Link | Join on | Rule to enforce |
-|---|---|---|
-| Claims -> Membership | `Client_ID` + `Claimant_ID` = `Member_ID` | Member must be covered on `AilmentDate` (joined ≤ date ≤ left); Gender, DOB, Rel must match |
-| Claims -> Limits | `Client_ID` + `Policy_Year` + `Category` + `Benefit` | Settled amounts can't exceed the remaining limit |
-| Membership -> Family | First 4 digits of `Member_ID` (`Family_No`) | Exactly one `-00` principal per family; dependants join on or after the principal |
-| Premium -> Claims / Membership | `Client_ID` + `Policy_Year` (or month, using earned premium) | Premium has no member link, so loss ratio is computed at client × period level |
-| Policy Year (everywhere) | Derived from a date against the renewal date (1 Jan, so it equals the calendar year here) | Claims: from `AilmentDate`; premium: from `Effective Date`; members: `Policy Year` stays as the join year |
-
-
-## Reference sources and calibration targets
- 
-Data generated will be based on existing real-world medical claims data from sources listed below. The generated data will be calibrated to match the targets set by the reference sources and assumptions. Assumptions are marked in green. Targets live in their own file (`calibration_targets.yaml`), separate from the generator inputs, so the realism report can check outputs against them.
- 
-| # | Calibration target | Metric | Reference source | Config section it tunes |
-|---|---|---|---|---|
-| 1 | Principal age–sex profile | Share of principals by 5-year band × sex | KNBS 2019 Census (working-age population), adjusted for the chosen industry | `population.principals` |
-| 2 | Family structure | Dependants per principal; `M` … `M+4` mix; spouse rate | KDHS (household size, marriage), plus the sample mix as a prior | `population.dependants` |
-| 3 | Births and age-outs | Newborn additions per 1,000 women of childbearing age a year; child exit age | KDHS fertility rates; policy wording | `population.lifecycle` |
-| <span style="color:green">4</span> | <span style="color:green">Joiner and leaver rates</span> | <span style="color:green">Annual % new principals and % exits</span> | <span style="color:green">Sample (~10 of 41 inactive over 7 years); employer turnover assumption</span> | <span style="color:green">`population.lifecycle`</span> |
-| 5 | Utilisation by age and sex | OP visits per member per year; IP admissions per 1,000, by band | KDHS health-seeking data; Synthea as a method reference (the U-shaped age curve) | `utilisation.frequency` |
-| 6 | Cost per visit | Mean and median cost per line by service type and provider tier | SHA tariff schedules as a floor (private tariffs sit above them) | `severity` |
-| 7 | IP vs OP share of spend | % of settled amount by benefit | IRA Kenya insurance industry reports (medical class) | `utilisation` and `severity.inpatient_tail` |
-| 8 | Cost concentration | % of spend from the top 1% and top 5% of members | Typical medical portfolio pattern; set as a range | `severity.inpatient_tail`, `chronic` |
-| 9 | Seasonality | Monthly claim-count index (long rains Mar–May, short rains Oct–Dec) | Malaria and respiratory seasonality (KNBS / Ministry of Health data) | `time.seasonality` |
-| 10 | Medical inflation | Year-on-year rise in average cost per line | KNBS Economic Survey (CPI health component) | `time.medical_inflation` |
-| 11 | Loss ratio | Incurred claims ÷ earned premium by year | IRA industry reports (medical class claims ratio) | `premium.loadings`, `premium.target_loss_ratio` |
-| 12 | Reporting lag | Days from ailment to claim date by benefit | Should ideally be within 90 days. Lag is under 30 days for *majority* OP/DEN/OPT/MAT cases. IP cases can take longer  | `lag` |
-| 13 | Taxes and levies | 0.20% Insurance Training Levy + 0.25% Policyholder's Compensation Fund (PCF) + KES 40 stamp duty each per policyholder | statutory rates | `premium.taxes` |
-| 14 | Benefit limits | Limit by category × benefit | Sample (C OP 300k, D OP 600k) | `config/reference/category_limits.csv` |
-
-
-## Reference and Assumptions Configuration
-Values marked as `# placeholder` need calibrating against as per the previous section those marked with `#doc` are as specified in the README.
-
+Where `claim_visits` represents a particular visit, `claim_items` represents the service provided (e.g.- Consultation, Drugs, Lab Tests, etc....) which can be multiple rows for a single claim number.
