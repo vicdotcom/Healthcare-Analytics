@@ -71,3 +71,6 @@ scratch/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+## Other files
+sticky-notes.md
