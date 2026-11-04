@@ -254,11 +254,11 @@ Clients can use from 1-4 categories depending on their employee count:
 | Assumption | Value | Basis |
 |---|---|---|
 | Outpatient visits | 3.5 per member per year at the base (age 30–39); negative binomial, dispersion 1.5 | Placeholder |
-| Inpatient admissions | 0.06 per member per year (60 per 1,000); Poisson | Placeholder |
+| Inpatient admissions | Negative Binomially distributed | [Poisson vs Negative Binomial for Modelling Hospital Length of Stay](https://fse.studenttheses.ub.rug.nl/37467/1/BachelorsProjectDRAFTFINAL.pdf) |
 | Dental visits | 0.35 per member per year; negative binomial, dispersion 1.0 | Placeholder |
 | Optical visits | 0.20 per member per year; Poisson | Placeholder |
 | Age and sex effect | U-shaped: high under 5, lowest at 10–24, rising after 40; higher for women of childbearing age | Design; to be calibrated |
 | Category effect | Cat A 1.30 · Cat B 1.15 · Cat C 1.00 · Cat D 0.90 · Cat E 0.80 | Placeholder |
-| Chronic conditions | Members are assigned conditions by age and sex. Kenya's 2015 STEPwise survey found 23.8% of adults with raised blood pressure and 3.1% with type 2 diabetes | Source [4] |
+| Chronic conditions | Members are assigned conditions by age and sex. Kenya's 2015 STEPwise survey found 23.8% of adults with raised blood pressure and 3.1% with type 2 diabetes | [Socio-economic and demographic determinants of non-communicable diseases in Kenya](https://www.panafrican-med-journal.com//content/article/37/351/full) |
 | Effect of a chronic condition | 2.5× visit frequency | Placeholder |
-| One claimant per claim | Always | Spec |
+| One claimant per claim | Always | Design |
