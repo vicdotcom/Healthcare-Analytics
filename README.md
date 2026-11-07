@@ -44,7 +44,7 @@ flowchart TD
       - [2.4 Joining and leaving](#24-joining-and-leaving)
     - [3. Claims](#3-claims)
       - [3.1. Benefits \& Limits](#31-benefits--limits)
-    - [3.2. Claim Frequency](#32-claim-frequency)
+      - [3.2. Claim Frequency](#32-claim-frequency)
       - [3.3. Maternity](#33-maternity)
       - [3.4 Diagnoses](#34-diagnoses)
       - [3.5 Service lines and providers](#35-service-lines-and-providers)
@@ -296,7 +296,7 @@ Clients can use from 1-4 categories depending on their employee count:
 | Limit reviews at renewal | None for now. Benefit limits remain year on year. | Placeholder |
 | Settled amounts | Capped at the remaining limit, applied in date order | Spec |
 
-### 3.2. Claim Frequency
+#### 3.2. Claim Frequency
 | Assumption | Value | Basis |
 |---|---|---|
 | Age and sex effect | U-shaped: high under 5, lowest at 10–24, rising after 40; higher for women of childbearing age | Design; to be calibrated |
