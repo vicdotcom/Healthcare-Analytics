@@ -1,0 +1,81 @@
+# =====================================================================
+# calibration_targets.yaml: what a full run is checked against
+# Kept separate from assumptions.yaml: inputs live there, expected outputs live here.
+# Each target: value, tolerance (absolute unless `rel`), and the README section it comes from.
+# Checked by `claimsgen calibrate` and tests/test_calibration.py (marked slow).
+# =====================================================================
+
+version: 3
+
+membership:
+  family_mix_at_inception:                      # implied by README 2.2–2.3 inputs, all clients pooled
+    target: {M: 0.455, M+1: 0.126, M+2: 0.188, M+3: 0.132, M+4: 0.076, M+5+: 0.024}
+    tolerance: 0.05
+    # The sample prior (5 M, 2 M+1, 5 M+2, 3 M+3, 1 M+4 → 31% singles) disagrees with these inputs
+    # (45% single principals, 10% of them with children → 46% singles). Reconcile in 2.2/2.3.   # confirm
+    sample_prior: {M: 0.3125, M+1: 0.125, M+2: 0.3125, M+3: 0.1875, M+4: 0.0625}
+  net_principal_growth:      {target: 0.08,  tolerance: 0.02}           # 2.4: 12% joiners − 4% exits
+  category_mix_4cat:         {target: {"Cat A": 0.02, "Cat B": 0.15, "Cat C": 0.70, "Cat D": 0.13}, tolerance: 0.03}
+  female_share_principals:                                              # 2.2
+    target: {manufacturing: 0.30, agriculture: 0.45, retail: 0.50, education: 0.60, banking_finance: 0.45}
+    tolerance: 0.05
+  setting_share_by_industry:                                            # 1.3
+    target:
+      manufacturing:   {Urban: 0.333, Peri-urban: 0.333, Rural: 0.334}
+      agriculture:     {Urban: 0.15,  Peri-urban: 0.20,  Rural: 0.65}
+      retail:          {Urban: 0.40,  Peri-urban: 0.45,  Rural: 0.15}
+      education:       {Urban: 0.30,  Peri-urban: 0.40,  Rural: 0.30}
+      banking_finance: {Urban: 0.70,  Peri-urban: 0.20,  Rural: 0.10}
+    tolerance: 0.05
+  births_per_covered_female_18_45: {target: 0.08, tolerance: 0.015}     # 2.4
+
+claims:
+  adult_chronic_prevalence:                                             # 3.2
+    target: {hypertension: 0.238, type2_diabetes: 0.031}
+    tolerance: 0.02
+  frequency_per_member_year:                                            # 3.2 (after all relativities, so wide bands)
+    target: {Outpatient: 3.5, Inpatient: 0.06, Dental: 0.35, Optical: 0.20}
+    tolerance: {rel: 0.25}
+  mean_lines_per_claim:                                                 # 3.5
+    target: {Outpatient: 2.2, Inpatient: 6.0, Maternity: 4.0, Dental: 1.5, Optical: 1.8}
+    tolerance: {rel: 0.10}
+  reimbursement_share_of_visits: {target: 0.05, tolerance: 0.02}        # 3.5 (higher in rural)
+  caesarean_share:                                                      # 3.3 / 1.3
+    target: {Urban: 0.35, Peri-urban: 0.28, Rural: 0.18}
+    tolerance: 0.05
+  women_with_4plus_anc_visits: {target: 0.72, tolerance: 0.08}          # 3.3 (KDHS national, a loose check)
+  lines_paid_below_claimed:    {target: 0.15, tolerance: 0.02}          # 3.6
+  lines_declined:              {target: 0.02, tolerance: 0.01}          # 3.6
+  average_shortfall_pct:       {target: 0.20, tolerance: 0.03}          # 3.6
+  cost_per_line_yoy_increase:  {target: 0.10, tolerance: 0.03}          # 3.6 medical inflation
+  reporting_lag_share_within:                                           # 3.8
+    Outpatient: {days: 30, target: 0.96, tolerance: 0.02}
+    Maternity:  {days: 30, target: 0.93, tolerance: 0.03}
+    Inpatient:  {days: 90, target: 0.97, tolerance: 0.02}
+  max_lag_days: {target: 270, rule: max}                                # 3.8 hard ceiling
+  seasonal_peak_months:                                                 # 3.7: OP/IP indices peak here
+    target: [5, 6, 7, 11, 12, 1]
+    rule: top_quarter_of_months_overlap
+
+premium:
+  portfolio_loss_ratio: {target: 0.80, tolerance: 0.08}                 # 4.1; settled ÷ premium by PY
+  client_loss_ratio_spread_sd: {target: 0.12, tolerance: 0.06}          # 4.1 mispricing shows up as spread
+  annual_premium_growth:  {target: 0.20, tolerance: 0.02}               # 4.1 renewal-to-renewal, in-force clients
+  rate_component:         {target: 0.11, tolerance: 0.04}               # 4.1
+  additions_per_scheme_year: {target: [5, 6], rule: range}              # 4.2
+  credit_notes_per_scheme_year: {target: 2, rule: exact}                # 4.2
+  taxes_formula: {rule: exact}                                          # 4.3: 0.45% × premium + KES 40 (renewal/addition)
+
+invariants:                                                             # must hold on every run, any seed
+  - one_claimant_per_claim
+  - claim_within_cover_period
+  - settled_le_claimed
+  - settled_le_remaining_limit
+  - claim_date_ge_ailment_date
+  - status_inactive_iff_date_left
+  - one_principal_per_family
+  - no_child_covered_past_25th_birthday
+  - no_exit_on_renewal_date
+  - newborn_added_within_30_days
+  - maternity_live_births_match_newborns
+  - family_number_never_reused

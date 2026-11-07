@@ -1,0 +1,429 @@
+# =====================================================================
+# assumptions.yaml: synthetic health-insurance portfolio generator
+# Healthcare Analytics project · config version 3
+# Source of truth: README.md (Assumptions, sections 1–4)
+#
+# Tags:   # doc          stated in the README
+#         # sample       taken from SampleData.xlsx
+#         # placeholder  to be calibrated against calibration_targets.yaml
+#         # confirm      design choice not settled by the README
+#
+# TERMS
+#   Client  = the company taking cover for its employees (Client_ID)
+#   Scheme  = one client's contract for one policy year (Scheme_ID)
+#   Setting = Urban / Peri-urban / Rural, fixed per family at join
+#
+# HOW SETTINGS ARE RESOLVED FOR A SCHEME YEAR (five layers; later layers win)
+#   1. defaults
+#   2. industries.<industry>            female share, age mix, geography, occupational ailments
+#   3. portfolio.client_draws           random draws for anything a client entry leaves as `draw`
+#   4. portfolio.clients[].overrides    dotted paths into `defaults`
+#   5. portfolio.clients[].scheme_years.<year>
+#                                       cumulative: a change carries forward until changed again;
+#                                       a year with no entry renews on the same terms
+#   Geography (`setting`) follows the same order, so an industry, a client or a single
+#   scheme year can override it.
+#
+# Paths under reference/ are relative to config/.
+# Money is in KES. Rates are annual unless stated.
+# =====================================================================
+
+version: 3
+
+# ---------------------------------------------------------------------
+# 1.1 Simulation window and run
+# ---------------------------------------------------------------------
+run:
+  seed: 42                                  # doc
+  seed_strategy: per_client_and_module      # doc: stream = f(seed, Client_ID, module); adding a client never changes another
+  first_inception: 2022-01-01               # doc: earliest possible scheme inception
+  last_ailment_date: 2025-12-31             # doc: last AilmentDate simulated
+  ibnr: excluded                            # doc: every incurred claim is treated as received, so ClaimDate may run
+                                            #      up to max lag (270 d) past last_ailment_date
+  scheme_years_to_generate: started_on_or_before_last_ailment_date
+                                            # a PY that starts in 2025 is generated in full for members and premium;
+                                            # its claims stop at last_ailment_date
+  output_formats: [csv, parquet]
+  partition_by: [Client_ID, Policy_Year]    # parquet only
+
+ids:
+  client_id: "C-{n:05d}"                    # sample: C-10482
+  client_id_pool: [10001, 99999]            # generated clients draw unused numbers from this range
+  scheme_id: "{client_id}-{policy_year}"    # doc: C-10482-2024
+  family_no_digits: 7                       # design; unique within a client and never reused
+  member_suffix_digits: 2                   # -00 principal, then a sequence (see population.suffixes)
+  claim_no_start: 6000001                   # sample range (6471507…); unique across the portfolio
+  line_no_start: 1                          # doc: Line_No restarts at 1 on each claim
+  invoice_no: "INV-{seq:06d}"               # sample: INV-100413
+  credit_note_no: "CN-{seq:06d}"            # sample: CN-100438
+  invoice_seq_start: 100001                 # one sequence shared by invoices and credit notes, as in the sample
+
+calendar:
+  policy_term_months: 12                    # doc
+  policy_year_label: start_year             # doc: 1 Jul 2024 – 30 Jun 2025 = PY 2024
+  renewal_day_of_month: 1
+
+benefits: [Outpatient, Inpatient, Maternity, Dental, Optical]   # doc: exact labels in the claims output
+
+categories:
+  labels: ["Cat A", "Cat B", "Cat C", "Cat D"]   # doc: A = top-level directors … D = contract staff
+  # Limits and frequency relativities fall from Cat A down to Cat D (doc).
+
+# ---------------------------------------------------------------------
+# 1.2 / 1.3 / 2.2 Industry profiles (layer 2)
+# Each industry has exactly one client, so these are also that client's settings.
+# ---------------------------------------------------------------------
+industries:
+  manufacturing:
+    population.principals.female_share: 0.30                         # doc
+    population.principals.age_distribution: reference/age_bands/manufacturing.csv
+    geography.member_share: {Urban: 0.333, Peri-urban: 0.333, Rural: 0.334}   # doc
+    claims.ailments.occupational_risk: reference/occupational/manufacturing.csv
+  agriculture:
+    population.principals.female_share: 0.45                         # doc
+    population.principals.age_distribution: reference/age_bands/agriculture.csv
+    geography.member_share: {Urban: 0.15, Peri-urban: 0.20, Rural: 0.65}      # doc
+    claims.ailments.occupational_risk: reference/occupational/agriculture.csv
+  retail:
+    population.principals.female_share: 0.50                         # doc (wholesale and retail trade)
+    population.principals.age_distribution: reference/age_bands/retail.csv
+    geography.member_share: {Urban: 0.40, Peri-urban: 0.45, Rural: 0.15}      # doc
+    claims.ailments.occupational_risk: reference/occupational/retail.csv
+  education:
+    population.principals.female_share: 0.60                         # doc
+    population.principals.age_distribution: reference/age_bands/education.csv
+    geography.member_share: {Urban: 0.30, Peri-urban: 0.40, Rural: 0.30}      # doc
+    claims.ailments.occupational_risk: reference/occupational/education.csv
+  banking_finance:
+    population.principals.female_share: 0.50
+    population.principals.age_distribution: reference/age_bands/banking_finance.csv
+    geography.member_share: {Urban: 0.70, Peri-urban: 0.20, Rural: 0.10}      # doc
+    claims.ailments.occupational_risk: reference/occupational/banking_finance.csv
+
+# ---------------------------------------------------------------------
+# Defaults (layer 1): apply to every client unless overridden
+# ---------------------------------------------------------------------
+defaults:
+
+  # ---------------- 1.3 Geography ----------------
+  geography:
+    settings: [Urban, Peri-urban, Rural]                             # doc
+    member_share: {Urban: 0.60, Peri-urban: 0.20, Rural: 0.20}       # doc: used only when the industry sets none
+    assigned: per_family_at_join                                     # doc: shared by all dependants, never changes
+    facility_cost_factor: {Urban: 1.15, Peri-urban: 1.00, Rural: 0.85}   # doc: on top of provider tier factor;
+                                                                     #      follows the facility, not the member
+    rural_inpatient_referral_to_urban: 0.35                          # doc
+    relativities: reference/setting_relativities.csv                 # doc: setting × benefit → frequency,
+                                                                     #      reporting lag, birth rate, reimbursement share
+    seasonality_by_setting: true                                     # doc: highland vs lowland malaria timing
+
+  # ---------------- 2. Membership ----------------
+  population:
+    principals:
+      age_range: [18, 65]                                            # doc
+      age_distribution: reference/age_bands/default.csv              # doc: 2019 Census working-age, adjusted per industry
+      female_share: 0.45                                             # doc
+      marital_mix: {Single: 0.50, Married: 0.48, Divorced: 0.02}     # doc
+                                                                     
+
+    category:
+      mix_by_category_count:                                         # doc: 4-category mix A 2 · B 15 · C 70 · D 13
+        1: {"Cat A": 1.00}                                           # confirm: how the mix collapses for smaller
+        2: {"Cat A": 0.17, "Cat B": 0.83}                            #   clients (management A+B vs staff C+D)
+        3: {"Cat A": 0.02, "Cat B": 0.15, "Cat C": 0.83}             #   (staff C+D merged)
+        4: {"Cat A": 0.02, "Cat B": 0.15, "Cat C": 0.70, "Cat D": 0.13}
+      category_count_by_principals:                                  # doc: 1–50 → 1, 51–200 → 2, 201–700 → 3, 1,001+ → 4
+        - {max_principals: 50,   categories: 1}
+        - {max_principals: 200,  categories: 2}
+        - {max_principals: 700,  categories: 3}
+        - {max_principals: null, categories: 4}                      # confirm: README skips 701–1,000; treated as 4
+      count_fixed_at: inception                                      # categories don't change as the client grows
+      assigned_on: join
+      annual_promotion_rate: 0.02                                    # doc: family moves up one category, at renewal only
+
+    dependants:
+      spouse_if_married: 0.95                                        # doc
+      spouse_age_gap: {mean: 2, sd: 4}                               # doc: husband older on average
+      children_per_family: {0: 0.20, 1: 0.35, 2: 0.25, 3: 0.15, 4: 0.05}   # doc (married principals)
+      single_principal_with_children: 0.10                           # doc; count drawn from children_per_family given ≥ 1
+      mother_age_at_birth: {min: 18, max: 45, mode_range: [28, 40]}  # doc: concentrated around 28–40
+
+    suffixes:                                                        # doc: the suffix is a sequence, not a relationship
+      principal: "00"
+      order: [Spouse, Child]          # spouse takes -01 if present; children follow in birth order
+      reuse_after_exit: false         # doc: numbers and suffixes are never reassigned
+      # A single parent's first child is therefore -01, so Relation always comes from the member record.
+
+    lifecycle:
+      initial_members_join_on: renewal_date                          # doc: principals with existing dependants
+      principal_annual_joiners: 0.12                                 # doc: new hires join mid-year with dependants
+      principal_annual_exit_rate: 0.04                               # doc: family leaves together
+      dependant_only_exit_rate: 0.01                                 # doc: divorce, spouse taking own cover
+      exit_date_rule: any_day_except_renewal                         # doc
+      marriage:
+        annual_rate: 0.03                                            # doc: single principals only
+        age_range: [28, 40]                                          # doc
+      births:
+        annual_rate_per_covered_female: 0.08                         # doc: live births, women 18–45
+        eligible_age: [18, 45]                                       # doc
+        eligible_relation: [Principal, Spouse]
+        newborn_add_lag_days: {dist: uniform, min: 1, max: 30}       # doc
+        # Pregnancies = births ÷ live-birth share (claims.maternity.outcomes), so losses add
+        # maternity claims without adding newborns.
+      child_age_out:
+        age: 25                                                      # doc
+        exit_on: birthday                                            # doc: moved one day if it falls on the renewal date
+      family_size:
+        label: "M+{dependants}"                                      # doc: M, M+1 …
+        additions_count_from: immediately                            # doc
+        deletions_count_from: next_policy_year                       # doc
+
+  # ---------------- 3.1 Benefits and limits ----------------
+  limits:
+    template:                                                        # placeholder base limits, falling from Cat A (doc)
+      "Cat A": {Inpatient: 3000000, Outpatient: 500000, Maternity: 200000, Dental: 50000, Optical: 50000}
+      "Cat B": {Inpatient: 2000000, Outpatient: 400000, Maternity: 150000, Dental: 30000,  Optical: 30000}
+      "Cat C": {Inpatient: 1000000, Outpatient: 300000, Maternity: 150000, Dental: 20000,  Optical: 20000}   # OP = sample
+      "Cat D": {Inpatient: 500000,  Outpatient: 100000, Maternity: 100000, Dental: 10000,  Optical: 10000}
+    basis:                                                           # doc
+      Inpatient: family
+      Outpatient: family
+      Maternity: family
+      Dental: member
+      Optical: member
+    richness: {dist: lognormal, median: 1.0, sigma: 0.25}            # doc: drawn once per generated client
+    rounding:                                                        # doc says KES 50,000
+      Inpatient: 50000
+      Outpatient: 50000
+      Maternity: 50000
+      Dental: 5000                                                   # confirm: 50,000 would round every
+      Optical: 5000                                                  #   dental/optical limit to 0 or 50,000
+    renewal_review: none                                             # doc: limits unchanged year on year
+    cap_settled_at_remaining_limit: true                             # doc: applied in AilmentDate order
+
+  # ---------------- 3.2 / 3.3 Frequency and maternity ----------------
+  claims:
+    frequency:                                                       # episodes per member-year, base cell (Cat C, adult)
+      Outpatient: {dist: negbin, mean: 3.5, dispersion: 1.5}         # doc
+      Inpatient:  {dist: poisson, mean: 0.06}                        # doc (README notes negbin may fit better later)
+      Dental:     {dist: negbin, mean: 0.35, dispersion: 1.0}        # doc
+      Optical:    {dist: poisson, mean: 0.20}                        # doc
+    age_sex_relativities: reference/age_sex_relativities.csv         # doc: U-shaped; high <5, lowest 10–24, rising 40+;
+                                                                     #      higher for women of childbearing age
+    category_relativities: {"Cat A": 1.30, "Cat B": 1.15, "Cat C": 1.00, "Cat D": 0.90}   # doc (Cat E 0.80 unused)
+    chronic:
+      prevalence: reference/chronic_prevalence.csv                   # doc: by age band × sex
+      adult_prevalence_targets: {hypertension: 0.238, type2_diabetes: 0.031}   # doc: STEPwise 2015
+      visit_multiplier: 2.5                                          # doc
+    one_claimant_per_claim: true                                     # doc
+
+    maternity:
+      source: births                                                 # doc: claims generated from simulated pregnancies
+      eligible: {gender: F, relation: [Principal, Spouse], age: [18, 49]}   # doc
+      antenatal_visits: {dist: poisson, mean: 4}                     # doc
+      outcomes:                                                      # doc (KDHS 2025–26)
+        live_birth: 0.895
+        miscarriage: 0.09
+        stillbirth: 0.01
+        induced_abortion: 0.005                                      # doc says "<1%"
+      caesarean_share_by_setting: {Urban: 0.35, Peri-urban: 0.28, Rural: 0.18}   # doc; national 20.3% is a check only
+
+    # ---------------- 3.4 Diagnoses ----------------
+    ailments:
+      coding: icd10_2019                                             # doc; ICD-11 code carried alongside where mapped
+      catalogue: reference/ailments.csv                              # doc: separate ailment table (Ailment_ID, ICD-10
+                                                                     #      subcategory, ICD-11, name, chapter, benefit,
+                                                                     #      age/sex eligibility, base weight, chronic flag,
+                                                                     #      setting weights Urban/Peri-urban/Rural)
+      chapters: reference/icd_chapters.csv                           # doc: 22 ICD-10 chapters
+      diagnoses_per_visit: 1                                         # doc
+      occupational_risk: reference/occupational/default.csv          # replaced by the industry profile
+
+    # ---------------- 3.5 Service lines and providers ----------------
+    lines_per_claim:                                                 # doc: means
+      Outpatient: {dist: shifted_poisson, mean: 2.2, min: 1}
+      Inpatient:  {dist: shifted_poisson, mean: 6.0, min: 2}
+      Maternity:  {dist: shifted_poisson, mean: 4.0, min: 1}
+      Dental:     {dist: shifted_poisson, mean: 1.5, min: 1}
+      Optical:    {dist: shifted_poisson, mean: 1.8, min: 1}
+    service_types: reference/service_types.csv                       # doc: service type × benefit, lognormal params,
+                                                                     #      SHA tariff floor, line-mix weights
+    providers:
+      panel: reference/providers.csv                                 # doc: CIC Group panel; name, tier, setting, county
+      tier_mix: reference/provider_tier_mix.csv                      # doc: category × setting → tier shares
+      reimbursement_share: 0.05                                      # doc: rural share raised via setting_relativities
+      reimbursement_label: REIMBURSEMENT                    # sample label  
+
+    # ---------------- 3.6 Claim costs ----------------
+    severity:
+      base_year: 2022                                                # costs in service_types.csv are 2022 prices
+      floor: sha_tariff                                              # doc: SHA tariff as the minimum per line
+      provider_tier_factor: {"Tier 1": 1.4, "Tier 2": 1.0, "Tier 3": 0.75}   # doc
+      inpatient_tail: {threshold: 500000, dist: pareto, alpha: 2.0}  # doc
+      medical_inflation: 0.10                                        # doc: per year from base_year
+    settlement:
+      shortfall_line_share: 0.15                                     # doc: lines paid below claimed
+      shortfall_pct: {dist: beta, a: 2, b: 8}                        # doc: mean 20%
+      declined_line_share: 0.02                                      # doc: SettledAmount = 0
+
+    # ---------------- 3.7 Seasonality ----------------
+    seasonality:
+      indices: reference/seasonality.csv                             # 12 monthly indices × benefit × setting
+      applies_to: [Outpatient, Inpatient]                            # doc
+      rains: {long: [3, 4, 5], short: [10, 11, 12]}                  # doc
+      malaria_peak_lag_months: [1, 2]                                # doc: peaks May–Jul and Nov–Jan
+
+    # ---------------- 3.8 Reporting lag ----------------
+    lag:                                                             # ClaimDate − AilmentDate, days
+      Outpatient: {dist: lognormal, median_days: 5,  sigma: 1.0}     # doc: ≈96% ≤30 d, ≈0.2% >90 d
+      Dental:     {dist: lognormal, median_days: 5,  sigma: 1.0}     # doc
+      Optical:    {dist: lognormal, median_days: 5,  sigma: 1.0}     # doc
+      Maternity:  {dist: lognormal, median_days: 7,  sigma: 1.0}     # doc: ≈93% ≤30 d
+      Inpatient:  {dist: lognormal, median_days: 14, sigma: 1.0}     # doc: ≈97% ≤90 d
+      max_days: 270                                                  # doc: longer draws are redrawn
+      # Rural medians are lengthened through geography.relativities (doc).
+
+  # ---------------- 4.1 Pricing ----------------
+  pricing:
+    rating_basis: category_x_family_size                             # doc
+    family_size_bands: ["M", "M+1", "M+2", "M+3", "M+4", "M+5+"]     # doc
+    rate_unit: per_family_per_year                                   
+    rated_by_setting: false                                          # doc
+    expected_cost_source: parameters                                 # doc: from section 3 assumptions, never simulated claims
+    target_loss_ratio: 0.80                                          # doc
+    client_mispricing: {dist: lognormal, sd: 0.12}                   # doc: drawn per client, so loss ratios differ
+    annual_rate_increase: {mean: 0.11, noise_sd: 0.04}               # doc: separate from membership growth
+    # Expected total premium growth ≈ 1.11 × 1.08 − 1 ≈ 20% (doc); checked in calibration_targets.yaml.
+
+  # ---------------- 4.2 Invoicing ----------------
+  premium:
+    renewal:
+      invoice_days_before_renewal: 15                                # doc: "around 15 days" (sample: 15 Dec for 1 Jan = 17)
+      invoice_jitter_days: 2
+    pro_rata_basis: days                                             # doc: from each member's own join/exit date to PY end
+    additions:
+      invoices_per_scheme_year: {min: 5, max: 6}                     # doc: each invoice batches the joiners since the last one
+      effective_after_invoice_days: {min: 0, max: 5}                 # doc 
+    deletions:
+      credit_notes_per_scheme_year: 2                                # doc
+      effective_date: day_after_latest_exit_in_batch                 # doc
+      invoice_after_effective_days: {min: 0, max: 5}                 # doc (timing to confirm)
+    earned_premium: derived_downstream                               # doc: not generated
+
+  # ---------------- 4.3 Taxes and levies ----------------
+    taxes:
+      training_levy_rate: 0.0020                                     # doc
+      pcf_rate: 0.0025                                               # doc: policyholder share only
+      stamp_duty: 40                                                 # doc
+      stamp_duty_on: [Renewal, "Endorsement - Addition"]             # doc
+      credit_notes: {levies: reversed, stamp_duty: none}             # doc
+      rounding_dp: 2
+
+# ---------------------------------------------------------------------
+# 1.2 Portfolio: which clients exist and when
+# ---------------------------------------------------------------------
+portfolio:
+
+  client_draws:                                     # layer 3: used wherever a client entry says `draw`
+    principals_at_inception: {dist: lognormal, median: 150, min: 10, max: 4000, sigma: 1.0}   # doc; sigma placeholder
+    renewal_month:                                  # doc weights
+      weights: {1: 0.25, 2: 0.08, 3: 0.08, 4: 0.10, 5: 0.05, 6: 0.05,
+                7: 0.10, 8: 0.066, 9: 0.07, 10: 0.06, 11: 0.05, 12: 0.03}
+      normalise: true                              
+    in_force_at_start: {count: 3}                   # doc: 3 of 5 clients in force on 1 Jan 2022
+    new_business_window: [2022-02-01, 2025-06-30]   # placeholder: the other 2 start on their renewal month in this window
+    annual_lapse_probability: 0.12                  # doc: per client per renewal; claims run off, no replacement
+    client_names: reference/client_names.csv        # name parts per industry
+    scheme_name_pattern: "{client_abbrev}"          # e.g. SAP; overridable per client
+
+  clients:                                          # doc: one per industry, 5 in total
+    - client_id: C-10482                            # sample
+      client_name: Sunrise Agro Processors Ltd      # sample
+      industry: agriculture
+      principals_at_inception: draw
+      renewal_month: 1                              # sample: effective 1 Jan
+      in_force_at_start: true                       # sample: renewals from 2021
+      limits_richness: 1.0                          # doc: limits come from the sample (Cat C OP 300,000)
+      overrides: {}
+      scheme_years:
+        2022: {scheme_name: DNS}                    # sample (claims Scheme_Name)
+
+    - client_id: draw
+      client_name: draw
+      industry: manufacturing
+      principals_at_inception: draw
+      renewal_month: draw
+      in_force_at_start: draw
+      limits_richness: draw
+      overrides: {}
+      scheme_years: {}
+
+    - client_id: draw
+      client_name: draw
+      industry: retail
+      principals_at_inception: draw
+      renewal_month: draw
+      in_force_at_start: draw
+      limits_richness: draw
+      overrides: {}
+      scheme_years: {}
+
+    - client_id: draw
+      client_name: draw
+      industry: education
+      principals_at_inception: draw
+      renewal_month: draw
+      in_force_at_start: draw
+      limits_richness: draw
+      overrides: {}
+      scheme_years: {}
+
+    - client_id: draw
+      client_name: draw
+      industry: banking_finance
+      principals_at_inception: draw
+      renewal_month: draw
+      in_force_at_start: draw
+      limits_richness: draw
+      overrides: {}
+      scheme_years: {}
+  # Layer-5 example (not active):
+  #   scheme_years:
+  #     2024: {pricing.annual_rate_increase.mean: 0.18}      # repricing after a poor year
+  #     2025: {geography.member_share: {Urban: 0.5, Peri-urban: 0.3, Rural: 0.2}}
+
+# ---------------------------------------------------------------------
+# Data quality
+# ---------------------------------------------------------------------
+quality:
+  inject_errors: false                      # true = seed errors so validation can be demonstrated
+  error_rates:
+    duplicate_member: 0.002
+    claim_outside_cover: 0.003
+    mixed_claimants_on_claim: 0.001         # sample claim 6480782 pattern
+    dependant_older_than_principal: 0.001
+    child_over_age_limit: 0.001
+    settled_above_claimed: 0.001
+    claim_date_before_ailment_date: 0.001
+
+# ---------------------------------------------------------------------
+# Output tables (grain → key) and labels
+# ---------------------------------------------------------------------
+output:
+  tables:
+    clients:          {grain: client,                           key: [Client_ID]}
+    schemes:          {grain: client × policy year,             key: [Scheme_ID]}
+    category_limits:  {grain: scheme × category × benefit,      key: [Scheme_ID, Category, Benefit]}
+    members:          {grain: member × scheme year,             key: [Scheme_ID, Member_ID]}   # carries Setting
+    premium_invoices: {grain: invoice or credit note,           key: [Invoice_No]}
+    claim_visits:     {grain: claim (one visit, one claimant),  key: [Claim_No]}
+    claim_items:      {grain: service line,                     key: [Claim_No, Line_No]}
+    claims_flat:      {grain: service line, README layout,      key: [Claim_No, Line_No]}
+    ailments:         {grain: ICD-10 subcategory,               key: [Ailment_ID]}
+    icd_chapters:     {grain: ICD-10 chapter,                   key: [Chapter_Code]}
+    providers:        {grain: facility,                         key: [Provider_ID]}
+    member_months:    {grain: member × month covered,           key: [Scheme_ID, Member_ID, Month], write: false}
+  labels:
+    relation: [Principal, Spouse, Child]    # doc: claims use membership labels
+    status: {open: Active, closed: Inactive}
+  metadata: run_metadata.json               # seed, config hash, resolved per-scheme settings, row counts, timings
